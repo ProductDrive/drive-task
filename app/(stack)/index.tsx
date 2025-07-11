@@ -2,21 +2,22 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useFocusEffect } from 'expo-router';
 import moment from 'moment';
 import {
-    useCallback,
-    useState
+  useCallback,
+  useState
 } from 'react';
 import {
-    Alert,
-    FlatList,
-    LayoutAnimation,
-    Platform,
-    Share,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    UIManager,
-    View,
+  Alert,
+  FlatList,
+  LayoutAnimation,
+  Platform,
+  Share,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  UIManager,
+  View,
 } from 'react-native';
+import { NotificationData } from '../utils/notificationModel';
 import { configureNotifications, scheduleTaskNotification } from '../utils/notifications';
 import { loadTasks, saveTasks } from '../utils/storage';
 import { Task } from '../utils/taskModel';
@@ -76,14 +77,18 @@ export default function HomeScreen() {
       title: 'Next Task',
       description: '',
       isComplete: false,
-      dueDate: moment().add(1, 'hour').toISOString(),
+      dueDate: moment().add(1, 'hour').toString(),
       isPriority: false,
     };
-    await scheduleTaskNotification(newT.id, newT.title, newT.dueDate);
     const updated = [...tasks, newT];
     animateLayout();
     setTasks(updated);
     setEditingTaskId(newT.id);
+    // schedule notification 10 min before
+    const tenMinutesBefore : NotificationData = { taskId: newT.id, title:`Upcoming Task: ${newT.title}` ,message: "Due in 10 minutes",  dueDate: moment(newT.dueDate).subtract(10, 'minutes').toString() };
+    await scheduleTaskNotification(tenMinutesBefore);
+    // schedule notification on due
+    await scheduleTaskNotification({...tenMinutesBefore, title: newT.title, message: "Due Now", dueDate: newT.dueDate});
     await saveTasks(updated);
   };
 
@@ -214,7 +219,7 @@ export default function HomeScreen() {
 
                   {/* Actions */}
                   <View className="flex-row justify-between mt-2">
-                    {['✉️', '🔁', item.isPriority ? '⭐' : '☆', '✏️', '🗑️'].map((icon, i) => {
+                    {['✉️', '↻', item.isPriority ? '⭐' : '☆', '✏️', '🗑️'].map((icon, i) => {
                       const handlers = [
                         () => shareTask(item),
                         () => markAsRepeat(item),
