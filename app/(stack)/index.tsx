@@ -1,4 +1,5 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from 'expo-router';
 import moment from 'moment';
 import {
@@ -15,13 +16,12 @@ import {
   TextInput,
   TouchableOpacity,
   UIManager,
-  View,
+  View
 } from 'react-native';
 import { NotificationData } from '../utils/notificationModel';
 import { configureNotifications, scheduleTaskNotification } from '../utils/notifications';
 import { loadTasks, saveTasks } from '../utils/storage';
 import { Task } from '../utils/taskModel';
-
 
 if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -31,6 +31,8 @@ export default function HomeScreen() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingDescId, setEditingDescId] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState<string>('');
+  const [descDraft, setDescDraft] = useState<string>('');
   const [showPicker, setShowPicker] = useState(false);
   const [pickerTaskId, setPickerTaskId] = useState<string | null>(null);
   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
@@ -46,9 +48,43 @@ export default function HomeScreen() {
   const animateLayout = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 
   const toggleComplete = async (id: string) => {
-    const updated = tasks.map(t => t.id === id ? { ...t, isComplete: !t.isComplete } : t);
-    setTasks(updated);
-    await saveTasks(updated);
+    const updatedList = await Promise.all(tasks.map(async t => {
+      if (t.id !== id) return t;
+      const updatedTask = { ...t, isComplete: !t.isComplete };
+
+      if (updatedTask.isComplete) {
+        if (t.notificationId) await Notifications.cancelScheduledNotificationAsync(t.notificationId).catch(() => {});
+        if (t.nowNotificationId) await Notifications.cancelScheduledNotificationAsync(t.nowNotificationId).catch(() => {});
+        updatedTask.notificationId = '';
+        updatedTask.nowNotificationId = '';
+      } else {
+        const due = moment(updatedTask.dueDate);
+        if (due.isAfter(moment()) && due.isAfter(moment().add(10, 'minutes'))) {
+          const tenMinBefore: NotificationData = {
+            taskId: updatedTask.id,
+            title: `Upcoming Task: ${updatedTask.title}`,
+            message: 'Due in 10 minutes',
+            dueDate: due.clone().subtract(10, 'minutes').toISOString()
+          };
+          updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
+          updatedTask.nowNotificationId = await scheduleTaskNotification({ ...tenMinBefore, message: 'Due Now', dueDate: due.toString() });
+        }
+
+        if (due.isAfter(moment()) && due.isBefore(moment().add(10, 'minutes'))) {
+          const nowNotif: NotificationData = {
+            taskId: updatedTask.id,
+            title: updatedTask.title,
+            message: 'Due Now',
+            dueDate: due.toString()
+          };
+          updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
+        }
+      }
+      return updatedTask;
+    }));
+
+    setTasks(updatedList);
+    await saveTasks(updatedList);
   };
 
   const shareTask = async (task: Task) => {
@@ -77,25 +113,73 @@ export default function HomeScreen() {
       title: 'Next Task',
       description: '',
       isComplete: false,
-      dueDate: moment().add(1, 'hour').toString(),
+      dueDate: moment().add(1, 'hour').toISOString(),
       isPriority: false,
     };
+
+    const tenMinBefore: NotificationData = {
+      taskId: newT.id,
+      title: `Upcoming Task: ${newT.title}`,
+      message: 'Due in 10 minutes',
+      dueDate: moment(newT.dueDate).subtract(10, 'minutes').toISOString()
+    };
+
+    const nowNotif: NotificationData = {
+      taskId: newT.id,
+      title: newT.title,
+      message: 'Due Now',
+      dueDate: newT.dueDate
+    };
+
+    newT.notificationId = await scheduleTaskNotification(tenMinBefore);
+    newT.nowNotificationId = await scheduleTaskNotification(nowNotif);
+
     const updated = [...tasks, newT];
     animateLayout();
     setTasks(updated);
     setEditingTaskId(newT.id);
-    // schedule notification 10 min before
-    const tenMinutesBefore : NotificationData = { taskId: newT.id, title:`Upcoming Task: ${newT.title}` ,message: "Due in 10 minutes",  dueDate: moment(newT.dueDate).subtract(10, 'minutes').toString() };
-    await scheduleTaskNotification(tenMinutesBefore);
-    // schedule notification on due
-    await scheduleTaskNotification({...tenMinutesBefore, title: newT.title, message: "Due Now", dueDate: newT.dueDate});
+    setTitleDraft(newT.title);
     await saveTasks(updated);
   };
 
   const updateTask = async <K extends keyof Task>(id: string, key: K, value: Task[K]) => {
-    const updated = tasks.map(t => t.id === id ? { ...t, [key]: value } : t);
-    setTasks(updated);
-    await saveTasks(updated);
+    const updatedList: Task[] = [];
+
+    for (const t of tasks) {
+      if (t.id !== id) {
+        updatedList.push(t);
+        continue;
+      }
+
+      const updatedTask: Task = { ...t, [key]: value };
+
+      if (key === 'dueDate' || key === 'title') {
+        if (t.notificationId) await Notifications.cancelScheduledNotificationAsync(t.notificationId).catch(() => {});
+        if (t.nowNotificationId) await Notifications.cancelScheduledNotificationAsync(t.nowNotificationId).catch(() => {});
+
+        const tenMinBefore: NotificationData = {
+          taskId: updatedTask.id,
+          title: `Upcoming Task: ${updatedTask.title}`,
+          message: 'Due in 10 minutes',
+          dueDate: moment(updatedTask.dueDate).subtract(10, 'minutes').toISOString()
+        };
+
+        const nowNotif: NotificationData = {
+          taskId: updatedTask.id,
+          title: updatedTask.title,
+          message: 'Due Now',
+          dueDate: updatedTask.dueDate
+        };
+
+        updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
+        updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
+      }
+
+      updatedList.push(updatedTask);
+    }
+
+    setTasks(updatedList);
+    await saveTasks(updatedList);
   };
 
   const openPicker = (taskId: string) => {
@@ -161,9 +245,7 @@ export default function HomeScreen() {
                 activeOpacity={0.7}
               >
                 <View className="p-5 relative">
-                  {/* ✅ Green Checkmark */}
-                  <View className="absolute top-3 right-3 w-6 h-6 rounded-full border-2 items-center justify-center
-                                  border-slate-300 bg-white z-10">
+                  <View className="absolute top-3 right-3 w-6 h-6 rounded-full border-2 items-center justify-center border-slate-300 bg-white z-10">
                     {item.isComplete && (
                       <View className="bg-green-500 w-full h-full rounded-full items-center justify-center">
                         <Text className="text-white text-xs font-bold">✓</Text>
@@ -171,45 +253,54 @@ export default function HomeScreen() {
                     )}
                   </View>
 
-                  {/* Title */}
                   {editingTaskId === item.id ? (
                     <TextInput
-                      value={item.title}
-                      onChangeText={t => updateTask(item.id, 'title', t)}
-                      onBlur={() => setEditingTaskId(null)}
+                      value={titleDraft}
+                      onChangeText={setTitleDraft}
+                      onBlur={() => {
+                        updateTask(item.id, 'title', titleDraft);
+                        setEditingTaskId(null);
+                      }}
                       autoFocus
                       className="text-lg font-semibold mb-1 text-slate-800 border-b"
                     />
                   ) : (
                     <Text
+                      onPress={() => {
+                        setEditingTaskId(item.id);
+                        setTitleDraft(item.title);
+                      }}
                       className={`text-lg font-semibold mb-1 ${item.isComplete ? 'line-through text-slate-400' : 'text-slate-800'}`}
                     >
                       {item.title}
                     </Text>
                   )}
 
-                  {/* Description */}
                   {editingDescId === item.id ? (
                     <TextInput
-                      value={item.description}
-                      onChangeText={t => updateTask(item.id, 'description', t)}
-                      onBlur={() => setEditingDescId(null)}
-                      autoFocus
+                      value={descDraft}
+                      onChangeText={setDescDraft}
+                      onBlur={() => {
+                        updateTask(item.id, 'description', descDraft);
+                        setEditingDescId(null);
+                      }}
                       className="text-sm mb-3 text-slate-600 border-b pb-1"
                       placeholder="Description..."
                     />
                   ) : (
                     <Text
-                      onPress={() => setEditingDescId(item.id)}
+                      onPress={() => {
+                        setEditingDescId(item.id);
+                        setDescDraft(item.description);
+                      }}
                       className={`text-sm mb-3 leading-5 ${item.isComplete ? 'text-slate-400' : 'text-slate-600'}`}
                     >
                       {item.description || 'Tap to add description...'}
                     </Text>
                   )}
 
-                  {/* Due Date */}
                   <TouchableOpacity
-                    className={`px-3 py-1 rounded-full mb-4`}
+                    className="px-3 py-1 rounded-full mb-4"
                     onPress={() => openPicker(item.id)}
                   >
                     <Text className={`text-l font-medium ${item.isComplete ? 'text-slate-400' : 'text-blue-600'}`}>
@@ -217,14 +308,16 @@ export default function HomeScreen() {
                     </Text>
                   </TouchableOpacity>
 
-                  {/* Actions */}
                   <View className="flex-row justify-between mt-2">
                     {['✉️', '↻', item.isPriority ? '⭐' : '☆', '✏️', '🗑️'].map((icon, i) => {
                       const handlers = [
                         () => shareTask(item),
                         () => markAsRepeat(item),
                         () => togglePriority(item.id),
-                        () => setEditingTaskId(item.id),
+                        () => {
+                          setEditingTaskId(item.id);
+                          setTitleDraft(item.title);
+                        },
                         () => Alert.alert('Delete Task', 'Are you sure?', [
                           { text: 'Cancel', style: 'cancel' },
                           {
@@ -253,7 +346,6 @@ export default function HomeScreen() {
         />
       </View>
 
-      {/* Floating Add Task Button */}
       <TouchableOpacity
         className="absolute bottom-8 right-6 items-center justify-center"
         onPress={handleAddNewTask}
@@ -263,7 +355,6 @@ export default function HomeScreen() {
         </View>
       </TouchableOpacity>
 
-      {/* Date / Time Picker */}
       {showPicker && pickerTaskId && (
         <DateTimePicker
           value={tempPickerDate}

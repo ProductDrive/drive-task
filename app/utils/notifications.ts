@@ -39,19 +39,19 @@ export async function scheduleTaskNotification(notificationData: NotificationDat
 
     return identifier;
 }
-export async function scheduleNowTaskNotification(taskId: string, title: string, dueDate: string) {
-    const triggerTime: any = new Date(dueDate);
+export async function scheduleTenMinutesTaskNotification(notificationData: NotificationData) {
+    const triggerTime: any = new Date(notificationData.dueDate).getTime() - 600000;
     triggerTime.setMinutes(triggerTime.getMinutes());
 
     // If the trigger time is in the past, don't schedule
     if (triggerTime <= new Date()) return;
-
+    const taskID = notificationData.taskId;
     const identifier = await Notifications.scheduleNotificationAsync({
         content: {
-            title: `Upcoming Task: ${title}`,
-            body: `Your task ${title} is Due`,
+            title: `Upcoming Task: ${notificationData.title}`,
+            body: `Your task ${notificationData.title} is Due 10 min`,
             sound: 'default',
-            data: { taskId },
+            data: {taskID},
         },
         trigger: triggerTime
     });

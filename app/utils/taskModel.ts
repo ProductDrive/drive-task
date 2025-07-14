@@ -16,5 +16,7 @@ export const createEmptyTask = (): Task => ({
     description: '',
     dueDate: '',
     isComplete: false,
-    isPriority: true
+    isPriority: true,
+    notificationId: '',
+    nowNotificationId: ''
 });
