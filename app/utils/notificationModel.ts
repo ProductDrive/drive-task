@@ -5,6 +5,7 @@ export interface NotificationData {
     title: string;
     message: string;
     dueDate: string;
+    repeat: string
 }
 
 export const createEmptyNotificationData = (): NotificationData => ({
@@ -12,4 +13,5 @@ export const createEmptyNotificationData = (): NotificationData => ({
     title: 'New Task',
     message: 'My task is due',
     dueDate: Date.now().toString(),
+    repeat: 'none'
 });

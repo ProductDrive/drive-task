@@ -22,9 +22,34 @@ export const loadTasks = async (): Promise<Task[]> => {
     const parsed: Task[] = JSON.parse(stored);
 
     const updated = parsed.map(task => {
-      const isOverdue = moment(task.dueDate).isBefore(moment());
-      return isOverdue ? { ...task, isComplete: true } : task;
+    const isOverdue = moment(task.dueDate).isBefore(moment());
+  
+      if (isOverdue) {
+        let updatedTask = { ...task, isComplete: true };
+        const originalTime = moment(task.dueDate).format("HH:mm"); // Extract time
+        // If daily repeat, move dueDate to today (keep original time)
+        if (task.repeat === 'daily') {
+          task.isComplete = false;
+          updatedTask.dueDate = moment().format(`YYYY-MM-DD ${originalTime}`);
+        }else if (task.repeat === 'weekly') {
+          // Move to the same weekday next week
+          updatedTask.dueDate = moment(task.dueDate)
+            .add(1, 'weeks')
+            .format(`YYYY-MM-DD ${originalTime}`);
+            task.isComplete = false;
+        } else if (task.repeat === 'monthly') {
+          // Move to the same day next month
+          updatedTask.dueDate = moment(task.dueDate)
+          .add(1, 'months')
+          .format(`YYYY-MM-DD ${originalTime}`);
+          task.isComplete = false;
+        }
+        return updatedTask;
+      }
+      return task;
     });
+
+
 
     // Sort:
     // 1. Incomplete tasks before completed

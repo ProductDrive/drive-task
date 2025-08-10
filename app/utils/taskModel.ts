@@ -1,3 +1,10 @@
+export enum RepeatOption {
+  None = 'none',
+  Daily = 'daily',
+  Weekly = 'weekly',
+  Monthly = 'monthly',
+}
+
 export interface Task {
     id: string;
     title: string;
@@ -7,6 +14,7 @@ export interface Task {
     notificationId?: string; // NEW
     nowNotificationId?: string;
     isPriority?: boolean;
+    repeat?: RepeatOption;
 }
 
 
@@ -18,5 +26,6 @@ export const createEmptyTask = (): Task => ({
     isComplete: false,
     isPriority: true,
     notificationId: '',
-    nowNotificationId: ''
+    nowNotificationId: '',
+    repeat: RepeatOption.None
 });
