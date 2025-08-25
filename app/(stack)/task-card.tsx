@@ -49,16 +49,17 @@ export function TaskCard(taskUtils: TaskCardProps) {
           )}
 
           {taskUtils.editingDescId === taskUtils.task.id ? (
-            <TextInput
-              value={taskUtils.descDraft}
-              onChangeText={taskUtils.setDescDraft}
-              onBlur={() => {
-                taskUtils.updateTask(taskUtils.task.id, 'description', taskUtils.descDraft);
-                taskUtils.setEditingDescId(null);
-              }}
-              className="text-sm mb-3 text-slate-600 border-b pb-1"
-              placeholder="Description..."
-            />
+            
+              <TextInput
+                value={taskUtils.descDraft}
+                onChangeText={taskUtils.setDescDraft}
+                onBlur={() => {
+                  taskUtils.updateTask(taskUtils.task.id, 'description', taskUtils.descDraft);
+                  taskUtils.setEditingDescId(null);
+                }}
+                className="text-sm mb-3 text-slate-600 border-b pb-1"
+                placeholder="Description..."
+              />
           ) : (
             <Text
               onPress={() => {

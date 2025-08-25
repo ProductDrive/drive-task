@@ -19,7 +19,9 @@ import {
   UIManager,
   View
 } from 'react-native';
-import { NotificationData } from '../utils/notificationModel';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { registerBackgroundTask } from '../utils/backgroundTasks';
+import { NotificationData, NotificationKind } from '../utils/notificationModel';
 import { configureNotifications, scheduleTaskNotification } from '../utils/notifications';
 import { christianPrayers, hinduPrayers, muslimPrayers } from '../utils/routineTaskTimes';
 import { loadTasks, saveTasks } from '../utils/storage';
@@ -45,6 +47,7 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      registerBackgroundTask();
       configureNotifications();
       loadTasks().then(setTasks);
     }, [])
@@ -63,20 +66,24 @@ export default function HomeScreen() {
     }else if (type === 'christian' || type === 'muslim' || type === 'hindu') {
       const prayers = createPrayerTasks(type);
       prayers.map(prayer => {
-        const tenMinBefore: NotificationData = {
-          taskId: prayer.id,
-          title: `Upcoming Task: ${prayer.title}`,
-          message: 'Due in 10 minutes',
-          dueDate: moment(prayer.dueDate).subtract(10, 'minutes').toISOString(),
-          repeat: prayer.repeat?? RepeatOption.Daily
-        };
-
+        let prayerTime = new Date(prayer.dueDate);
         const nowNotif: NotificationData = {
           taskId: prayer.id,
           title: prayer.title,
           message: 'Due Now',
-          dueDate: prayer.dueDate,
-          repeat: prayer.repeat?? RepeatOption.Daily
+          dueDate: prayerTime,
+          repeat: prayer.repeat?? RepeatOption.Daily,
+          kind: NotificationKind.Final
+        };
+        //remove 10 minutes
+        prayerTime.setMinutes(prayerTime.getMinutes() - 10);
+        const tenMinBefore: NotificationData = {
+          taskId: prayer.id,
+          title: `Upcoming Task: ${prayer.title}`,
+          message: 'Due in 10 minutes',
+          dueDate: prayerTime,
+          repeat: prayer.repeat?? RepeatOption.Daily,
+          kind: NotificationKind.Warning
         };
 
         scheduleTaskNotification(tenMinBefore);
@@ -117,29 +124,27 @@ const createPrayerTasks = (type: 'christian' | 'muslim' | 'hindu'): Task[] => {
         updatedTask.notificationId = '';
         updatedTask.nowNotificationId = '';
       } else {
-        const due = moment(updatedTask.dueDate);
-        if (due.isAfter(moment()) && due.isAfter(moment().add(10, 'minutes'))) {
-          const tenMinBefore: NotificationData = {
-            taskId: updatedTask.id,
-            title: `Upcoming Task: ${updatedTask.title}`,
-            message: 'Due in 10 minutes',
-            dueDate: due.clone().subtract(10, 'minutes').toISOString(),
-            repeat: updatedTask.repeat || 'none'
-          };
-          updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
-          updatedTask.nowNotificationId = await scheduleTaskNotification({ ...tenMinBefore, message: 'Due Now', dueDate: due.toString() });
-        }
-
-        if (due.isAfter(moment()) && due.isBefore(moment().add(10, 'minutes'))) {
-          const nowNotif: NotificationData = {
-            taskId: updatedTask.id,
-            title: updatedTask.title,
-            message: 'Due Now',
-            dueDate: due.toString(),
-            repeat: updatedTask.repeat || 'none'
-          };
-          updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
-        }
+        const due = new Date(updatedTask.dueDate);
+        const nowNotif: NotificationData = {
+          taskId: updatedTask.id,
+          title: updatedTask.title,
+          message: 'Due Now',
+          dueDate: due,
+          repeat: updatedTask.repeat || 'none',
+          kind: NotificationKind.Final
+        };
+        //remove 10 minutes
+        due.setMinutes(due.getMinutes() - 10);
+        const tenMinBefore: NotificationData = {
+          taskId: updatedTask.id,
+          title: `Upcoming Task: ${updatedTask.title}`,
+          message: 'Due in 10 minutes',
+          dueDate: due,
+          repeat: updatedTask.repeat || 'none',
+          kind: NotificationKind.Warning
+        };
+        updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
+        updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
       }
       return updatedTask;
     }));
@@ -169,34 +174,45 @@ const createPrayerTasks = (type: 'christian' | 'muslim' | 'hindu'): Task[] => {
   };
 
   const handleAddNewTask = async () => {
+    // dueDate is 1 hour from now
+    const newTaskDue = new Date();
+    console.log('new current time in index', newTaskDue);
+    newTaskDue.setMinutes(newTaskDue.getMinutes() + 15);
+    console.log('15 minutes in future in index', newTaskDue);
+
+    //newTaskDue.setHours(newTaskDue.getHours() + 1);
+    //console.log('ONE hours in future in index', newTaskDue);
     const newT: Task = {
       id: Date.now().toString(),
       title: 'Next Task',
       description: '',
       isComplete: false,
-      dueDate: moment().add(1, 'hour').toISOString(),
+      dueDate: newTaskDue.toISOString(),
       isPriority: false,
       repeat: RepeatOption.None
     };
-
-    const tenMinBefore: NotificationData = {
-      taskId: newT.id,
-      title: `Upcoming Task: ${newT.title}`,
-      message: 'Due in 10 minutes',
-      dueDate: moment(newT.dueDate).subtract(10, 'minutes').toISOString(),
-      repeat: 'none'
-    };
-
+    console.log('saved date in index', newT.dueDate);
     const nowNotif: NotificationData = {
       taskId: newT.id,
       title: newT.title,
       message: 'Due Now',
-      dueDate: newT.dueDate,
-      repeat: 'none'
+      dueDate: new Date(newT.dueDate),
+      repeat: 'none',
+      kind: NotificationKind.Final
     };
-
-    newT.notificationId = await scheduleTaskNotification(tenMinBefore);
     newT.nowNotificationId = await scheduleTaskNotification(nowNotif);
+    // remove 10 minutes
+    newTaskDue.setMinutes(newTaskDue.getMinutes() - 10);
+    const tenMinBefore: NotificationData = {
+      taskId: newT.id,
+      title: `Upcoming Task: ${newT.title}`,
+      message: 'Due in 10 minutes',
+      dueDate: newTaskDue,
+      repeat: 'none',
+      kind: NotificationKind.Warning
+    };
+    console.log('10 min before in index', tenMinBefore.dueDate);
+    newT.notificationId = await scheduleTaskNotification(tenMinBefore);
 
     const updated = [...tasks, newT];
     animateLayout();
@@ -208,35 +224,45 @@ const createPrayerTasks = (type: 'christian' | 'muslim' | 'hindu'): Task[] => {
   };
 
   const handleAddRoutineTask = async () => {
+    const due = new Date();
+    console.log('new taskduedate for routine in index', due);
+    // dueDate is 1 hour from now
+    due.setMinutes(due.getMinutes() + 15);
+    console.log('ONE hours in future for routine in index', due);
      const newT: Task = {
       id: Date.now().toString(),
       title: 'Next Task',
       description: '',
       isComplete: false,
-      dueDate: moment().add(1, 'hour').toISOString(),
+      dueDate: due.toISOString(),
       isPriority: false,
       repeat: RepeatOption.Daily
-    };
-
-    const tenMinBefore: NotificationData = {
-      taskId: newT.id,
-      title: `Upcoming Task: ${newT.title}`,
-      message: 'Due in 10 minutes',
-      dueDate: moment(newT.dueDate).subtract(10, 'minutes').toISOString(),
-      repeat: 'daily'
     };
 
     const nowNotif: NotificationData = {
       taskId: newT.id,
       title: newT.title,
       message: 'Due Now',
-      dueDate: newT.dueDate,
-      repeat: 'daily'
+      dueDate: new Date(newT.dueDate),
+      repeat: 'daily',
+      kind: NotificationKind.Final
     };
-
-    newT.notificationId = await scheduleTaskNotification(tenMinBefore);
+    
     newT.nowNotificationId = await scheduleTaskNotification(nowNotif);
 
+    // Remove 10 minutes
+    due.setMinutes(due.getMinutes() - 10);
+    const tenMinBefore: NotificationData = {
+      taskId: newT.id,
+      title: `Upcoming Task: ${newT.title}`,
+      message: 'Due in 10 minutes',
+      dueDate: due,
+      repeat: 'daily',
+      kind: NotificationKind.Warning
+    };
+    newT.notificationId = await scheduleTaskNotification(tenMinBefore);
+
+    console.log(newT.notificationId, newT.nowNotificationId);
     const updated = [...tasks, newT];
     animateLayout();
     setTasks(updated);
@@ -247,7 +273,14 @@ const createPrayerTasks = (type: 'christian' | 'muslim' | 'hindu'): Task[] => {
 };
 
   const deleteTask = async (id: string) => {
-    const updatedTasks = tasks.filter(t => t.id !== id);
+    if (tasks.find(t => t.id === id)?.notificationId) {
+      await Notifications.cancelScheduledNotificationAsync(tasks.find(t => t.id === id)?.notificationId ?? '').catch(() => {});
+    }
+    if (tasks.find(t => t.id === id)?.nowNotificationId) {
+      await Notifications.cancelScheduledNotificationAsync(tasks.find(t => t.id === id)?.nowNotificationId ?? '').catch(() => {});
+    }
+    
+    const updatedTasks = tasks.filter(t =>  t.id !== id);
     animateLayout();
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
@@ -264,28 +297,33 @@ const createPrayerTasks = (type: 'christian' | 'muslim' | 'hindu'): Task[] => {
 
       const updatedTask: Task = { ...t, [key]: value };
 
-      if (key === 'dueDate' || key === 'repeat') {
+      if (key === 'dueDate' || key === 'repeat' || key === 'title') {
         if (t.notificationId) await Notifications.cancelScheduledNotificationAsync(t.notificationId).catch(() => {});
         if (t.nowNotificationId) await Notifications.cancelScheduledNotificationAsync(t.nowNotificationId).catch(() => {});
+        console.log(t.notificationId, t.nowNotificationId);
+        const due = new Date(updatedTask.dueDate);
+        // THIS SHUOLD BE CHECKED
+        console.log('updated taskduedate in index', updatedTask.dueDate);
+        const nowNotif: NotificationData = {
+          taskId: updatedTask.id,
+          title: updatedTask.title,
+          message: 'Due Now',
+          dueDate: due,
+          repeat: updatedTask.repeat || 'none',
+          kind: NotificationKind.Final
+        };
+        updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
 
         const tenMinBefore: NotificationData = {
           taskId: updatedTask.id,
           title: `Upcoming Task: ${updatedTask.title}`,
           message: 'Due in 10 minutes',
-          dueDate: moment(updatedTask.dueDate).subtract(10, 'minutes').toISOString(),
-          repeat: updatedTask.repeat || 'none'
+          dueDate: due,
+          repeat: updatedTask.repeat || 'none',
+          kind: NotificationKind.Warning
         };
-
-        const nowNotif: NotificationData = {
-          taskId: updatedTask.id,
-          title: updatedTask.title,
-          message: 'Due Now',
-          dueDate: updatedTask.dueDate,
-          repeat: updatedTask.repeat || 'none'
-        };
-
+        tenMinBefore.dueDate.setMinutes(tenMinBefore.dueDate.getMinutes() - 10);
         updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
-        updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
       }
 
       updatedList.push(updatedTask);
@@ -333,46 +371,52 @@ const createPrayerTasks = (type: 'christian' | 'muslim' | 'hindu'): Task[] => {
         <Text className="text-slate-500 text-base">Stay organized and productive</Text>
       </View>
 
-      <View className="flex-1 px-4">
-        <FlatList
-          data={tasks}
-          keyExtractor={i => i.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 100 }}
-          ListEmptyComponent={
-            <View className="items-center justify-center mt-20">
-              <View className="w-24 h-24 bg-blue-100 rounded-full items-center justify-center mb-4">
-                <Text className="text-4xl">📝</Text>
+      <KeyboardAwareScrollView
+        style={{ flex: 1, marginBottom: 100 }}
+        contentContainerStyle={{ flexGrow: 1 }}
+        enableOnAndroid={true}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View className="flex-1 px-4">
+          <FlatList
+            data={tasks}
+            keyExtractor={i => i.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingBottom: 100 }}
+            ListEmptyComponent={
+              <View className="items-center justify-center mt-20">
+                <View className="w-24 h-24 bg-blue-100 rounded-full items-center justify-center mb-4">
+                  <Text className="text-4xl">📝</Text>
+                </View>
+                <Text className="text-xl font-semibold text-slate-600 mb-2">No tasks yet</Text>
+                <Text className="text-slate-400 text-center px-8">
+                  Tap the + button below to create your first task
+                </Text>
               </View>
-              <Text className="text-xl font-semibold text-slate-600 mb-2">No tasks yet</Text>
-              <Text className="text-slate-400 text-center px-8">
-                Tap the + button below to create your first task
-              </Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <TaskCard
-              task={item}
-              editingTaskId={editingTaskId}
-              setEditingTaskId={setEditingTaskId}
-              titleDraft={titleDraft}
-              setTitleDraft={setTitleDraft}
-              updateTask={updateTask}
-              openPicker={openPicker}
-              editingDescId={editingDescId}
-              descDraft={descDraft}
-              setEditingDescId={setEditingDescId}
-              setDescDraft={setDescDraft}
-              toggleComplete={toggleComplete}
-              togglePriority={togglePriority}
-              shareTask={shareTask}
-              markAsRepeat={markAsRepeat}
-              deleteTask={deleteTask}
-            />
-          )}
-        />
-      </View>
-
+            }
+            renderItem={({ item }) => (
+              <TaskCard
+                task={item}
+                editingTaskId={editingTaskId}
+                setEditingTaskId={setEditingTaskId}
+                titleDraft={titleDraft}
+                setTitleDraft={setTitleDraft}
+                updateTask={updateTask}
+                openPicker={openPicker}
+                editingDescId={editingDescId}
+                descDraft={descDraft}
+                setEditingDescId={setEditingDescId}
+                setDescDraft={setDescDraft}
+                toggleComplete={toggleComplete}
+                togglePriority={togglePriority}
+                shareTask={shareTask}
+                markAsRepeat={markAsRepeat}
+                deleteTask={deleteTask}
+              />
+            )}
+          />
+        </View>
+      </KeyboardAwareScrollView>
       {/* Floating + Button */}
       <TouchableOpacity style={styles.addButton} onPress={toggleMenu}>
         <Ionicons name="add" size={30} color="white" />
@@ -496,318 +540,3 @@ const styles = StyleSheet.create({
   },
 });
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// import DateTimePicker from '@react-native-community/datetimepicker';
-// import * as Notifications from 'expo-notifications';
-// import { useFocusEffect } from 'expo-router';
-// import moment from 'moment';
-// import {
-//   useCallback,
-//   useState
-// } from 'react';
-// import {
-//   FlatList,
-//   LayoutAnimation,
-//   Platform,
-//   Share,
-//   Text,
-//   TouchableOpacity,
-//   UIManager,
-//   View
-// } from 'react-native';
-// import { NotificationData } from '../utils/notificationModel';
-// import { configureNotifications, scheduleTaskNotification } from '../utils/notifications';
-// import { loadTasks, saveTasks } from '../utils/storage';
-// import { RepeatOption, Task } from '../utils/taskModel';
-// import { TaskCard } from './task-card';
-
-// if (Platform.OS === 'android') {
-//   UIManager.setLayoutAnimationEnabledExperimental?.(true);
-// }
-
-// export default function HomeScreen() {
-//   const [tasks, setTasks] = useState<Task[]>([]);
-//   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-//   const [editingDescId, setEditingDescId] = useState<string | null>(null);
-//   const [titleDraft, setTitleDraft] = useState<string>('');
-//   const [descDraft, setDescDraft] = useState<string>('');
-//   const [showPicker, setShowPicker] = useState(false);
-//   const [pickerTaskId, setPickerTaskId] = useState<string | null>(null);
-//   const [pickerMode, setPickerMode] = useState<'date' | 'time'>('date');
-//   const [tempPickerDate, setTempPickerDate] = useState<Date>(new Date());
-
-//   useFocusEffect(
-//     useCallback(() => {
-//       configureNotifications();
-//       loadTasks().then(setTasks);
-//     }, [])
-//   );
-
-//   const animateLayout = () => LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-
-//   const toggleComplete = async (id: string) => {
-//     const updatedList = await Promise.all(tasks.map(async t => {
-//       if (t.id !== id) return t;
-//       const updatedTask = { ...t, isComplete: !t.isComplete };
-
-//       if (updatedTask.isComplete) {
-//         if (t.notificationId) await Notifications.cancelScheduledNotificationAsync(t.notificationId).catch(() => {});
-//         if (t.nowNotificationId) await Notifications.cancelScheduledNotificationAsync(t.nowNotificationId).catch(() => {});
-//         updatedTask.notificationId = '';
-//         updatedTask.nowNotificationId = '';
-//       } else {
-//         const due = moment(updatedTask.dueDate);
-//         if (due.isAfter(moment()) && due.isAfter(moment().add(10, 'minutes'))) {
-//           const tenMinBefore: NotificationData = {
-//             taskId: updatedTask.id,
-//             title: `Upcoming Task: ${updatedTask.title}`,
-//             message: 'Due in 10 minutes',
-//             dueDate: due.clone().subtract(10, 'minutes').toISOString(),
-//             repeat: updatedTask.repeat || 'none'
-//           };
-//           updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
-//           updatedTask.nowNotificationId = await scheduleTaskNotification({ ...tenMinBefore, message: 'Due Now', dueDate: due.toString() });
-//         }
-
-//         if (due.isAfter(moment()) && due.isBefore(moment().add(10, 'minutes'))) {
-//           const nowNotif: NotificationData = {
-//             taskId: updatedTask.id,
-//             title: updatedTask.title,
-//             message: 'Due Now',
-//             dueDate: due.toString(),
-//             repeat: updatedTask.repeat || 'none'
-//           };
-//           updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
-//         }
-//       }
-//       return updatedTask;
-//     }));
-
-//     setTasks(updatedList);
-//     await saveTasks(updatedList);
-//   };
-
-//   const shareTask = async (task: Task) => {
-//     await Share.share({
-//       message: `Task: ${task.title}\n${task.description || ''}\nDue: ${moment(task.dueDate).format('MMM DD, YYYY • hh:mm A')}`
-//     });
-//   };
-
-//   const togglePriority = async (id: string) => {
-//     const updated = tasks.map(t => t.id === id ? { ...t, isPriority: !t.isPriority } : t);
-//     setTasks(updated);
-//     await saveTasks(updated);
-//   };
-
-//   const markAsRepeat = async (task: Task) => {
-//     const newT = { ...task, id: `${task.id}-copy-${Date.now()}`, isComplete: false };
-//     const updated = [...tasks, newT];
-//     animateLayout();
-//     setTasks(updated);
-//     await saveTasks(updated);
-//   };
-
-//   const handleAddNewTask = async () => {
-//     const newT: Task = {
-//       id: Date.now().toString(),
-//       title: 'Next Task',
-//       description: '',
-//       isComplete: false,
-//       dueDate: moment().add(1, 'hour').toISOString(),
-//       isPriority: false,
-//       repeat: RepeatOption.None
-//     };
-
-//     const tenMinBefore: NotificationData = {
-//       taskId: newT.id,
-//       title: `Upcoming Task: ${newT.title}`,
-//       message: 'Due in 10 minutes',
-//       dueDate: moment(newT.dueDate).subtract(10, 'minutes').toISOString(),
-//       repeat: 'none'
-//     };
-
-//     const nowNotif: NotificationData = {
-//       taskId: newT.id,
-//       title: newT.title,
-//       message: 'Due Now',
-//       dueDate: newT.dueDate,
-//       repeat: 'none'
-//     };
-
-//     newT.notificationId = await scheduleTaskNotification(tenMinBefore);
-//     newT.nowNotificationId = await scheduleTaskNotification(nowNotif);
-
-//     const updated = [...tasks, newT];
-//     animateLayout();
-//     setTasks(updated);
-//     setEditingTaskId(newT.id);
-//     setTitleDraft(newT.title);
-//     await saveTasks(updated);
-//   };
-
-//   const deleteTask = async (id: string) => {
-//   const updatedTasks = tasks.filter(t => t.id !== id);
-//   animateLayout();
-//   setTasks(updatedTasks);
-//   await saveTasks(updatedTasks);
-// };
-
-
-//   const updateTask = async <K extends keyof Task>(id: string, key: K, value: Task[K]) => {
-//     const updatedList: Task[] = [];
-
-//     for (const t of tasks) {
-//       if (t.id !== id) {
-//         updatedList.push(t);
-//         continue;
-//       }
-
-//       const updatedTask: Task = { ...t, [key]: value };
-
-//       if (key === 'dueDate' || key === 'repeat') {
-//         console.log('Updating notification', key);
-//         if (t.notificationId) await Notifications.cancelScheduledNotificationAsync(t.notificationId).catch(() => {});
-//         if (t.nowNotificationId) await Notifications.cancelScheduledNotificationAsync(t.nowNotificationId).catch(() => {});
-
-//         const tenMinBefore: NotificationData = {
-//           taskId: updatedTask.id,
-//           title: `Upcoming Task: ${updatedTask.title}`,
-//           message: 'Due in 10 minutes',
-//           dueDate: moment(updatedTask.dueDate).subtract(10, 'minutes').toISOString(),
-//           repeat: updatedTask.repeat || 'none'
-//         };
-//         console.log('Scheduling notification', tenMinBefore);
-
-//         const nowNotif: NotificationData = {
-//           taskId: updatedTask.id,
-//           title: updatedTask.title,
-//           message: 'Due Now',
-//           dueDate: updatedTask.dueDate,
-//           repeat: updatedTask.repeat || 'none'
-//         };
-//         console.log('Scheduling notification', nowNotif);
-
-//         updatedTask.notificationId = await scheduleTaskNotification(tenMinBefore);
-//         updatedTask.nowNotificationId = await scheduleTaskNotification(nowNotif);
-//       }
-
-//       updatedList.push(updatedTask);
-//     }
-
-//     setTasks(updatedList);
-//     await saveTasks(updatedList);
-//   };
-
-//   const openPicker = (taskId: string) => {
-//     const t = tasks.find(t => t.id === taskId);
-//     const date = t ? new Date(t.dueDate) : new Date();
-//     setTempPickerDate(date);
-//     setPickerTaskId(taskId);
-//     setPickerMode('date');
-//     setShowPicker(true);
-//   };
-
-//   const onPickerChange = (_: any, date?: Date) => {
-//     if (!date) {
-//       setShowPicker(false);
-//       return;
-//     }
-//     if (pickerMode === 'date') {
-//       setTempPickerDate(date);
-//       if (Platform.OS === 'android') {
-//         setPickerMode('time');
-//         setShowPicker(true);
-//       } else {
-//         setPickerMode('time');
-//       }
-//     } else {
-//       const final = new Date(tempPickerDate);
-//       final.setHours(date.getHours());
-//       final.setMinutes(date.getMinutes());
-//       updateTask(pickerTaskId!, 'dueDate', final.toISOString());
-//       setShowPicker(false);
-//     }
-//   };
-
-//   return (
-//     <View className="flex-1 bg-gradient-to-br from-slate-50 to-blue-50">
-//       <View className="px-6 pt-12 pb-6">
-//         <Text className="text-3xl font-bold text-slate-800 mb-2">Tasks</Text>
-//         <Text className="text-slate-500 text-base">Stay organized and productive</Text>
-//       </View>
-
-//       <View className="flex-1 px-4">
-//         <FlatList
-//           data={tasks}
-//           keyExtractor={i => i.id}
-//           showsVerticalScrollIndicator={false}
-//           contentContainerStyle={{ paddingBottom: 100 }}
-//           ListEmptyComponent={
-//             <View className="items-center justify-center mt-20">
-//               <View className="w-24 h-24 bg-blue-100 rounded-full items-center justify-center mb-4">
-//                 <Text className="text-4xl">📝</Text>
-//               </View>
-//               <Text className="text-xl font-semibold text-slate-600 mb-2">No tasks yet</Text>
-//               <Text className="text-slate-400 text-center px-8">
-//                 Tap the + button below to create your first task
-//               </Text>
-//             </View>
-//           }
-//           renderItem={({ item }) => (
-//             <TaskCard
-//               task={item}
-//               editingTaskId={editingTaskId}
-//               setEditingTaskId={setEditingTaskId}
-//               titleDraft={titleDraft}
-//               setTitleDraft={setTitleDraft}
-//               updateTask={updateTask}
-//               openPicker={openPicker}
-//               editingDescId={editingDescId}
-//               descDraft={descDraft}
-//               setEditingDescId={setEditingDescId}
-//               setDescDraft={setDescDraft}
-//               toggleComplete={toggleComplete}
-//               togglePriority={togglePriority}
-//               shareTask={shareTask}
-//               markAsRepeat={markAsRepeat}
-//               deleteTask={deleteTask}
-//             />
-//           )}
-//         />
-//       </View>
-
-//       <TouchableOpacity
-//         className="absolute bottom-8 right-6 items-center justify-center"
-//         onPress={handleAddNewTask}
-//       >
-//         <View className="rounded-full w-16 h-16 bg-blue-100 items-center justify-center">
-//           <Text className="text-slate-600 text-5xl mb-2">+</Text>
-//         </View>
-//       </TouchableOpacity>
-
-//       {showPicker && pickerTaskId && (
-//         <DateTimePicker
-//           value={tempPickerDate}
-//           mode={pickerMode}
-//           display="default"
-//           onChange={onPickerChange}
-//         />
-//       )}
-//     </View>
-//   );
-// }
