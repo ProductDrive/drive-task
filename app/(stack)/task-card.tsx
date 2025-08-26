@@ -1,14 +1,21 @@
-// components/task-card.tsx
 import moment from 'moment';
 import React from 'react';
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { TaskCardProps } from '../utils/taskcardModel';
 
+import { useDebounce } from "use-debounce";
 import { RepeatOption } from '../utils/taskModel';
 
 const repeatOptions = Object.values(RepeatOption);
 
 export function TaskCard(taskUtils: TaskCardProps) {
+  const [debouncedTitle] = useDebounce(taskUtils.titleDraft, 500);
+
+  const handleChange = () => {
+    taskUtils.updateTask(taskUtils.task.id, 'title', debouncedTitle);
+    taskUtils.setEditingTaskId(null);
+  }
+
   return (
     <View className="mb-4">
       <TouchableOpacity
@@ -29,9 +36,8 @@ export function TaskCard(taskUtils: TaskCardProps) {
             <TextInput
               value={taskUtils.titleDraft}
               onChangeText={taskUtils.setTitleDraft}
-              onBlur={() => {
-                taskUtils.updateTask(taskUtils.task.id, 'title', taskUtils.titleDraft);
-                taskUtils.setEditingTaskId(null);
+              onChange={() => {
+                handleChange
               }}
               autoFocus
               className="text-lg font-semibold mb-1 text-slate-800 border-b"
@@ -49,17 +55,17 @@ export function TaskCard(taskUtils: TaskCardProps) {
           )}
 
           {taskUtils.editingDescId === taskUtils.task.id ? (
-            
-              <TextInput
-                value={taskUtils.descDraft}
-                onChangeText={taskUtils.setDescDraft}
-                onBlur={() => {
-                  taskUtils.updateTask(taskUtils.task.id, 'description', taskUtils.descDraft);
-                  taskUtils.setEditingDescId(null);
-                }}
-                className="text-sm mb-3 text-slate-600 border-b pb-1"
-                placeholder="Description..."
-              />
+
+            <TextInput
+              value={taskUtils.descDraft}
+              onChangeText={taskUtils.setDescDraft}
+              onBlur={() => {
+                taskUtils.updateTask(taskUtils.task.id, 'description', taskUtils.descDraft);
+                taskUtils.setEditingDescId(null);
+              }}
+              className="text-sm mb-3 text-slate-600 border-b pb-1"
+              placeholder="Description..."
+            />
           ) : (
             <Text
               onPress={() => {
@@ -82,22 +88,21 @@ export function TaskCard(taskUtils: TaskCardProps) {
           </TouchableOpacity>
           <View className="flex-row mb-4">
             {repeatOptions.map((repeatOption) => {
-                const isActive = taskUtils.task.repeat === repeatOption;
-                return (
+              const isActive = taskUtils.task.repeat === repeatOption;
+              return (
                 <TouchableOpacity
-                    key={repeatOption}
-                    onPress={() => taskUtils.updateTask(taskUtils.task.id, 'repeat', repeatOption)}
-                    className={`px-3 py-1 mx-1 rounded-full border ${
-                    isActive ? 'bg-blue-100 border-blue-500' : 'bg-white border-slate-300'
+                  key={repeatOption}
+                  onPress={() => taskUtils.updateTask(taskUtils.task.id, 'repeat', repeatOption)}
+                  className={`px-3 py-1 mx-1 rounded-full border ${isActive ? 'bg-blue-100 border-blue-500' : 'bg-white border-slate-300'
                     }`}
                 >
-                    <Text className={`text-sm font-medium ${isActive ? 'text-blue-600' : 'text-slate-600'}`}>
+                  <Text className={`text-sm font-medium ${isActive ? 'text-blue-600' : 'text-slate-600'}`}>
                     {repeatOption.charAt(0).toUpperCase() + repeatOption.slice(1)}
-                    </Text>
+                  </Text>
                 </TouchableOpacity>
-                );
+              );
             })}
-            </View>
+          </View>
           <View className="flex-row justify-between mt-2">
             {['✉️', '↻', taskUtils.task.isPriority ? '⭐' : '☆', '✏️', '🗑️'].map((icon, i) => {
               const handlers = [
