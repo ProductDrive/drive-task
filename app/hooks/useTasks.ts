@@ -1,12 +1,12 @@
 
-import { useCallback, useEffect, useState } from 'react';
-import { Task, RepeatOption } from '../utils/taskModel';
-import { loadTasks as _loadTasks, saveTasks as _saveTasks } from '../utils/storage';
-import { scheduleTaskNotification, cancelNotification, configureNotifications } from '../utils/notifications';
-import * as Notifications from 'expo-notifications';
-import { LayoutAnimation, UIManager, Platform, Share } from 'react-native';
 import moment from 'moment';
+import { useCallback, useEffect, useState } from 'react';
+import { LayoutAnimation, Platform, Share, UIManager } from 'react-native';
 import { NotificationData, NotificationKind } from '../utils/notificationModel';
+import { cancelNotification, configureNotifications, scheduleTaskNotification } from '../utils/notifications';
+import { christianPrayers, hinduPrayers, muslimPrayers } from '../utils/routineTaskTimes';
+import { loadTasks as _loadTasks, saveTasks as _saveTasks } from '../utils/storage';
+import { RepeatOption, Task } from '../utils/taskModel';
 // enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     // @ts-ignore
@@ -17,25 +17,13 @@ function animateLayout() {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
 }
 
-const christianPrayers = [
-    { title: 'Morning Prayer', time: '07:00', repeat: RepeatOption.Daily },
-    { title: 'Evening Prayer', time: '18:00', repeat: RepeatOption.Daily },
-];
-const muslimPrayers = [
-    { title: 'Fajr', time: '05:00', repeat: RepeatOption.Daily },
-    { title: 'Maghrib', time: '18:30', repeat: RepeatOption.Daily },
-];
-const hinduPrayers = [
-    { title: 'Puja Morning', time: '06:30', repeat: RepeatOption.Daily },
-];
-
 export function useTasks() {
     const [tasks, setTasks] = useState<Task[]>([]);
 
     const loadTasks = useCallback(async () => {
         try {
             const loaded = await _loadTasks();
-            setTasks(loaded);
+            persistAndSet(await resetRecurringTasks(loaded));
         } catch (err) {
             console.warn('loadTasks failed', err);
         }
@@ -287,6 +275,7 @@ export function useTasks() {
 
             // If key affects scheduling, cancel + reschedule
             if (key === 'dueDate' || key === 'repeat' || key === 'title') {
+                console.log('reschedule');
                 if (t.notificationId) await cancelNotification(t.notificationId);
                 if (t.nowNotificationId) await cancelNotification(t.nowNotificationId);
 
@@ -321,6 +310,44 @@ export function useTasks() {
         await persistAndSet(updatedList);
     };
 
+    const resetRecurringTasks = async (tasks: Task[]) => {
+        const updated = tasks.map(task => {
+            const isOverdue = moment(task.dueDate).isBefore(moment());
+            if (isOverdue && task.repeat !== 'none') {
+                let updatedTask = { ...task };
+                const originalTime = moment(task.dueDate).format("HH:mm"); // Extract time
+                // If daily repeat, move dueDate to today (keep original time)
+                if (task.repeat === 'daily') {
+                    updatedTask.isComplete = false;
+                    updatedTask.dueDate = moment(task.dueDate).add(1, 'days').format(`YYYY-MM-DD ${originalTime}`);
+                } else if (task.repeat === 'weekly') {
+                    // Move to the same weekday next week
+                    updatedTask.dueDate = moment(task.dueDate).add(1, 'weeks').format(`YYYY-MM-DD ${originalTime}`);
+                    updatedTask.isComplete = false;
+                } else if (task.repeat === 'monthly') {
+                    // Move to the same day next month
+                    updatedTask.dueDate = moment(task.dueDate).add(1, 'months').format(`YYYY-MM-DD ${originalTime}`);
+                    updatedTask.isComplete = false;
+                } else {
+                    updatedTask.isComplete = true;
+                }
+                    return updatedTask;
+            }
+            return task;
+        });
+        updated.sort((a, b) => {
+              if (a.isComplete !== b.isComplete) {
+                return a.isComplete ? 1 : -1; // incomplete first
+              }
+              if (a.isPriority !== b.isPriority) {
+                return b.isPriority ? 1 : -1; // priority first
+              }
+              return moment(a.dueDate).valueOf() - moment(b.dueDate).valueOf(); // soonest due date first
+            });
+        
+        return updated;
+    };
+
     return {
         tasks,
         setTasks,
@@ -334,5 +361,6 @@ export function useTasks() {
         deleteTask,
         updateTask,
         shareTask,
+        resetRecurringTasks,
     };
 }

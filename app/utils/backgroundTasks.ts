@@ -2,9 +2,9 @@
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import moment from 'moment';
+import { useTasks } from '../hooks/useTasks';
 import { NotificationData, NotificationKind } from './notificationModel';
-import { configureNotifications, scheduleTaskNotification } from './notifications';
-import { loadTasks } from './storage';
+import { cancelNotification, configureNotifications, scheduleTaskNotification } from './notifications';
 
 const TASK_NAME = 'DAILY_TASK_CHECK';
 
@@ -14,13 +14,13 @@ TaskManager.defineTask(TASK_NAME, async () => {
 
   try {
     await configureNotifications();
-    const tasks = await loadTasks();
+    const {tasks} = useTasks();
 
     if (!tasks || tasks.length === 0) {
       return 'NoData';
     }
 
-    const today = moment().format('YYYY-MM-DD');
+    const today = moment().format('YYYY-MM-DD HH:mm');
 
     for (let task of tasks) {
       if (task.repeat === 'daily') {
@@ -35,6 +35,7 @@ TaskManager.defineTask(TASK_NAME, async () => {
             repeat: 'none',
             kind: NotificationKind.Final,
           };
+          await cancelNotification(task.nowNotificationId??'');
           task.nowNotificationId = await scheduleTaskNotification(nowNotif);
 
           // Notification: 10 minutes before
@@ -48,6 +49,7 @@ TaskManager.defineTask(TASK_NAME, async () => {
             repeat: 'none',
             kind: NotificationKind.Warning,
           };
+          await cancelNotification(task.notificationId??'');
           task.notificationId = await scheduleTaskNotification(tenMinBefore);
 
           console.log(`Scheduled notifications for task ${task.id} at ${task.dueDate}`);
@@ -68,7 +70,8 @@ export async function registerBackgroundTask() {
     await BackgroundTask.registerTaskAsync(TASK_NAME, {
       minimumInterval: 60 * 60, // every hour
     });
-    console.log('Background task registered');
+    const today = moment().format('YYYY-MM-DD HH:mm');
+    console.log('Background task registered', today);
   } catch (err) {
     console.error('Failed to register background task', err);
   }
